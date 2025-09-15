@@ -1,0 +1,62 @@
+---
+alwaysApply: true
+description: Environment variables, configuration behavior, and precedence for Thruster
+---
+
+## Configuration surface
+
+- Configuration is environment-driven in [internal/config.go](mdc:internal/config.go). All variables support optional `THRUSTER_` prefix; prefixed values take precedence.
+- Minimal required arg: the upstream command must be provided to `thrust` (first CLI arg). Missing command errors out early.
+
+## Variables and defaults
+
+- **Target/upstream**
+  - `TARGET_PORT` (int, default `3000`)
+  - `UpstreamCommand`/`UpstreamArgs` come from CLI args after `thrust`.
+
+- **Cache**
+  - `CACHE_SIZE` (bytes, default `64MB`)
+  - `MAX_CACHE_ITEM_SIZE` (bytes, default `1MB`)
+
+- **Features**
+  - `X_SENDFILE_ENABLED` (bool, default `true`)
+  - `GZIP_COMPRESSION_ENABLED` (bool, default `true`)
+  - `MAX_REQUEST_BODY` (bytes, default `0` = unlimited)
+
+- **TLS**
+  - `TLS_DOMAIN` (csv of domains; presence enables TLS)
+  - `ACME_DIRECTORY` (default Let's Encrypt production)
+  - `EAB_KID` / `EAB_HMAC_KEY` (optional EAB)
+  - `STORAGE_PATH` (default `./storage/thruster`)
+
+- **Bad gateway page**
+  - `BAD_GATEWAY_PAGE` (default `./public/502.html`)
+
+- **HTTP(S) servers**
+  - `HTTP_PORT` (default `80`)
+  - `HTTPS_PORT` (default `443`)
+  - `HTTP_IDLE_TIMEOUT` (seconds, default `60`)
+  - `HTTP_READ_TIMEOUT` (seconds, default `30`)
+  - `HTTP_WRITE_TIMEOUT` (seconds, default `30`)
+
+- **Forwarded headers**
+  - `FORWARD_HEADERS` (bool): default is `true` when no TLS; `false` when TLS enabled.
+
+- **Logging**
+  - `LOG_REQUESTS` (bool, default `true`)
+  - `DEBUG` (bool): enables `slog.LevelDebug` if true; otherwise `INFO`.
+
+## Parsing helpers and precedence
+
+- Values read via `findEnv` check `THRUSTER_<KEY>` first, then `<KEY>`.
+- Ints parsed via `strconv.Atoi`; durations are integer seconds.
+- Booleans use `strconv.ParseBool` and default on parse error.
+
+## Effects in runtime
+
+- `FORWARD_HEADERS` controls preservation of inbound `X-Forwarded-*` when proxying. When TLS terminates at Thruster, default is to set correct values and not forward originals unless explicitly enabled.
+- `TLS_DOMAIN` non-empty enables HTTPS listener and makes HTTP listener redirect to HTTPS.
+- `PORT` environment variable is set for the upstream process to `TARGET_PORT`.
+
+See the full reference in [README.md](mdc:README.md) for user-facing docs.
+

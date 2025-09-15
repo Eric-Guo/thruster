@@ -1,0 +1,40 @@
+---
+globs: internal/*_test.go
+description: Testing patterns for handlers, middleware, caching, config, and proxy behavior in Thruster
+---
+
+## Go testing patterns in Thruster
+
+- **Test stack**: Use `testing` with `github.com/stretchr/testify/{assert,require}`.
+
+- **HTTP handlers**:
+  - Use `httptest.NewServer` to simulate upstreams and `httptest.NewRecorder` for responses.
+  - Build handlers via `NewHandler` with tailored `HandlerOptions` to exercise gzip, body limits, forwarding, and sendfile.
+  - Prefer explicit assertions for status, headers (`Content-Type`, `Content-Encoding`, `Content-Length`, `X-Cache`) and body.
+
+- **Caching**:
+  - For `CacheHandler`, validate cacheability scenarios by toggling `Cache-Control` and request methods.
+  - Assert hit/miss/bypass via `X-Cache` and expected body content.
+  - Use deterministic maps or a tiny fake cache for unit tests; see `testCache` in `cache_handler_test.go`.
+  - Verify `Vary` behavior by setting request headers and asserting keying and response matches.
+
+- **CacheableResponse**:
+  - Test `CacheStatus` conditions: `public`, `s-max-age`/`max-age`, `no-cache`, wildcard `Vary`, oversized bodies, and excluded statuses (e.g., 304).
+  - Test serialization round-trip via `ToBuffer` and `CacheableResponseFromBuffer`.
+  - Ensure conditional responses respect `If-None-Match` semantics.
+
+- **Config**:
+  - Use helpers to set `os.Args` and environment variables; ensure `THRUSTER_` prefix takes precedence over unprefixed.
+  - Validate defaulting, overrides, and `ForwardHeaders` behavior with/without `TLS_DOMAIN`.
+
+- **Proxy and forwarded headers**:
+  - Confirm inbound `Host` preservation and correct `X-Forwarded-*` values depending on `forwardHeaders`.
+  - Verify that upstream compression is only requested when client requests gzip.
+
+- **Logging middleware**:
+  - Capture JSON logs via a custom `slog.NewJSONHandler` writing to a `strings.Builder`.
+  - Decode and assert fields: `path`, `method`, `status`, `remote_addr`, `user_agent`, `req_content_type`, `resp_content_type`, `query`, `req_content_length`, `resp_content_length`, `cache`.
+
+- **Benchmarks**:
+  - Co-locate with tests using `testing.B` and run with `make bench`.
+

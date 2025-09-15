@@ -1,0 +1,43 @@
+---
+globs: *.go
+description: Go coding conventions, middleware composition, logging, proxy behavior, and caching rules for Thruster
+---
+
+## Go conventions for Thruster
+
+- **Logging**: Use `log/slog` with structured fields.
+  - Info for request lifecycle, Debug for cache and TLS internals, Error sparingly for exceptional states.
+  - Prefer millisecond durations; field keys seen in logs: `path`, `status`, `dur`, `method`, `req_content_length`, `req_content_type`, `resp_content_length`, `resp_content_type`, `remote_addr`, `user_agent`, `cache`, `query`.
+
+- **Middleware composition**: Only compose handlers in [internal/handler.go](mdc:internal/handler.go).
+  - Order must remain: proxy → cache → sendfile → request-start → optional gzip → optional body-limit → optional logging.
+  - New middleware must be inserted via `NewHandler` in a way that preserves semantics above.
+
+- **ResponseWriter wrappers**: If you wrap `http.ResponseWriter`, implement pass-throughs correctly.
+  - Always track `statusCode` and `bytesWritten` if needed.
+  - Implement `Hijack` via type assertion to `http.Hijacker` and set status to `101` on success.
+  - Implement `Flush` via type assertion to `http.Flusher`.
+  - Do not write a body after an X-Sendfile transfer has begun.
+
+- **Proxy behavior**: Keep upstream transport compression disabled.
+  - See [internal/proxy_handler.go](mdc:internal/proxy_handler.go): `createProxyTransport` sets `DisableCompression = true` to preserve X-Sendfile semantics.
+  - Preserve/forward `X-Forwarded-*` via `setXForwarded`, honoring `FORWARD_HEADERS`.
+  - Map `*http.MaxBytesError` to `413` in the `ProxyErrorHandler`.
+
+- **Caching rules**: Follow existing cache contract.
+  - Cache only `GET`/`HEAD`; bypass if `Connection: Upgrade`/websocket or `Range` is present.
+  - A response is cacheable only if `Cache-Control` contains `public` and a positive `s-max-age` or `max-age`, and `Vary` does not contain `*`.
+  - When cacheable, strip `Set-Cookie` before storing. Encode via `encoding/gob`.
+  - Compute cache keys using method, path, query, host, and `Vary`ed request headers, sorted and canonicalized. See [internal/variant.go](mdc:internal/variant.go).
+
+- **TLS and servers**: Keep TLS decisions in config and redirect semantics in server.
+  - If TLS is configured, HTTP listener must only redirect to HTTPS; otherwise serve on HTTP only. See [internal/server.go](mdc:internal/server.go).
+  - Use autocert with optional EAB from config; cache certs under `STORAGE_PATH`.
+
+- **Request markers**: Ensure `X-Request-Start: t=<ms>` is present (set if missing) early in the chain.
+
+- **Body limits**: Use `http.MaxBytesHandler` when `MAX_REQUEST_BODY > 0`.
+
+- **Style**: Prefer explicit types on exported APIs, guard clauses, and shallow nesting.
+  - Avoid panics for expected errors; return errors with context and log at call sites where appropriate.
+

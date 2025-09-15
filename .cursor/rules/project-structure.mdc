@@ -1,0 +1,64 @@
+---
+alwaysApply: true
+description: High-level guide to project structure, entry points, and HTTP request flow in Thruster
+---
+
+## Project structure and entry points
+
+- Main entry: [cmd/thrust/main.go](mdc:cmd/thrust/main.go)
+  - Loads config via [internal/config.go](mdc:internal/config.go)
+  - Sets logger, constructs [internal/service.go](mdc:internal/service.go) and exits with its status
+
+- Service lifecycle: [internal/service.go](mdc:internal/service.go)
+  - Builds the HTTP handler pipeline via [internal/handler.go](mdc:internal/handler.go)
+  - Starts/stops the HTTP(S) servers from [internal/server.go](mdc:internal/server.go)
+  - Launches and supervises the upstream process via [internal/upstream_process.go](mdc:internal/upstream_process.go)
+
+## Request flow (handler pipeline)
+
+Order of middleware composition in [internal/handler.go](mdc:internal/handler.go):
+
+1. Reverse proxy → [internal/proxy_handler.go](mdc:internal/proxy_handler.go)
+   - Uses `httputil.ReverseProxy` with a custom Transport (compression disabled)
+   - Preserves/sets X-Forwarded-* via `setXForwarded` respecting `FORWARD_HEADERS`
+   - Custom 502 page via `ProxyErrorHandler` (serves `BAD_GATEWAY_PAGE` when present)
+
+2. HTTP cache → [internal/cache_handler.go](mdc:internal/cache_handler.go)
+   - Keys vary by request method/path/query/host plus `Vary`ed headers via [internal/variant.go](mdc:internal/variant.go)
+   - Bodies are stashed and encoded via [internal/cacheable_response.go](mdc:internal/cacheable_response.go)
+   - Storage is in-memory via [internal/memory_cache.go](mdc:internal/memory_cache.go)
+
+3. X-Sendfile support → [internal/sendfile_handler.go](mdc:internal/sendfile_handler.go)
+   - If `X_SENDFILE_ENABLED`, converts `X-Sendfile` header into a direct file send
+
+4. Request start marker → [internal/request_start_middleware.go](mdc:internal/request_start_middleware.go)
+   - Ensures `X-Request-Start: t=<ms>` is set if missing
+
+5. Optional gzip → provided by `github.com/klauspost/compress/gzhttp` when enabled
+
+6. Optional body limit → `http.MaxBytesHandler` when `MAX_REQUEST_BODY > 0`
+
+7. Optional request logging → [internal/logging_middleware.go](mdc:internal/logging_middleware.go)
+   - Structured logs via `log/slog` include path, status, duration, sizes, cache status
+
+## Server and TLS
+
+- HTTP(S) servers: [internal/server.go](mdc:internal/server.go)
+  - HTTP always listens on `HTTP_PORT`; if TLS is configured, HTTP only redirects to HTTPS
+  - HTTPS listens on `HTTPS_PORT` with autocert from `ACME_DIRECTORY` and optional EAB
+  - Timeouts come from config: idle/read/write
+
+- TLS decisions: [internal/config.go](mdc:internal/config.go)
+  - `HasTLS()` is true when `TLS_DOMAIN` has one or more domains
+  - Certificates cached under `STORAGE_PATH`
+
+## Configuration surface
+
+- Environment-driven config in [internal/config.go](mdc:internal/config.go) with `THRUSTER_`-prefixed overrides
+- Full env var reference in [README.md](mdc:README.md)
+
+## Local build and distribution
+
+- Build/test: [Makefile](mdc:Makefile)
+- Gem packaging and native bins: [rakelib/package.rake](mdc:rakelib/package.rake), [thruster.gemspec](mdc:thruster.gemspec), [lib/thruster/version.rb](mdc:lib/thruster/version.rb)
+

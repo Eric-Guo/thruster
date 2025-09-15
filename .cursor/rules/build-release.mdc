@@ -1,0 +1,38 @@
+---
+description: Build, test, distribution, and gem packaging workflow for Thruster
+---
+
+## Build and test
+
+- Use the Makefile targets:
+  - `make build` → builds binaries into `bin/`
+  - `make test` → runs all tests
+  - `make bench` → runs benchmarks
+  - `make dist` → creates cross-compiled binaries in `dist/` for {linux,darwin} × {amd64,arm64}
+
+- Go version and modules: see [go.mod](mdc:go.mod). Ensure Go version matches.
+
+## Gem packaging with native executables
+
+- Ruby tasks: [Rakefile](mdc:Rakefile), [rakelib/package.rake](mdc:rakelib/package.rake), [thruster.gemspec](mdc:thruster.gemspec)
+  - `rake package` builds the Ruby gem plus native-platform gems after `make dist`.
+  - Binaries are embedded per platform under `exe/<platform>/thrust`.
+  - Platform mapping is in `rakelib/package.rake` under `NATIVE_PLATFORMS`.
+
+## Release checklist
+
+1) Update version and changelog
+   - Bump `lib/thruster/version.rb`
+   - Update `CHANGELOG.md`
+   - Commit and create a git tag
+
+2) Build native gems
+   - `rake clobber`
+   - `rake package`
+
+3) Publish
+   - `for g in pkg/*.gem ; do gem push $g ; done`
+   - `git push`
+
+Reference contributor docs: [CONTRIBUTING.md](mdc:CONTRIBUTING.md)
+
